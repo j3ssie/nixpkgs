@@ -30,7 +30,7 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Linux ] && [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1 ]; then
             # Allow this test's exact Nix bubblewrap path to create user namespaces.
-            bwrap="$(nix-instantiate --eval --raw --expr '(import ./default.nix {}).bubblewrap.outPath')/bin/bwrap"
+            bwrap="$(nix --extra-experimental-features nix-command eval --raw --file default.nix bubblewrap.outPath)/bin/bwrap"
             printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile vigolium-ci-bwrap "%s" flags=(unconfined) {\n  userns,\n}\n' "$bwrap" | sudo tee /etc/apparmor.d/vigolium-ci-bwrap >/dev/null
             sudo apparmor_parser -r /etc/apparmor.d/vigolium-ci-bwrap
           fi
