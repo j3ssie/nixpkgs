@@ -1,0 +1,39 @@
+name: Validate Vigolium package
+
+on:
+  push:
+    branches: [test-vigolium]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+      - name: Build with sandboxing and check metadata
+        run: |
+          nix-instantiate --eval --strict --expr '(import ./default.nix {}).vigolium-bin.meta'
+          nix-build default.nix -A vigolium-bin --out-link "$RUNNER_TEMP/vigolium-result" --option sandbox true
+          test -r "$RUNNER_TEMP/vigolium-result/share/licenses/vigolium/LICENSE"
+          test -r "$RUNNER_TEMP/vigolium-result/share/doc/vigolium/THIRD_PARTY_NOTICES.md"
+      - name: Test version and CLI startup
+        run: |
+          if [ "$RUNNER_OS" = Linux ] && [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1 ]; then
+            # Allow this test's exact Nix bubblewrap path to create user namespaces.
+            bwrap="$(nix-instantiate --eval --raw --expr '(import ./default.nix {}).bubblewrap.outPath')/bin/bwrap"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile vigolium-ci-bwrap "%s" flags=(unconfined) {\n  userns,\n}\n' "$bwrap" | sudo tee /etc/apparmor.d/vigolium-ci-bwrap >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/vigolium-ci-bwrap
+          fi
+          "$RUNNER_TEMP/vigolium-result/bin/vigolium" version | tee "$RUNNER_TEMP/vigolium-version.txt"
+          grep -F '0.5.1' "$RUNNER_TEMP/vigolium-version.txt"
+          "$RUNNER_TEMP/vigolium-result/bin/vigolium" --help
